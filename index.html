@@ -1,0 +1,342 @@
+<html>
+<head>
+    <style>
+        input {
+            width: 500px;
+        }
+    </style>
+</head>
+<body>
+    collection <input id="collection" value="EQC5RIVNDIX2pw-LHugckLEv82s9SpT7f-n-PnrQaCxcDQM6"><br/>
+    cost <input id="minter_cost" value="49"><br/>
+    threshold <input id="minter_threshold" value="300"><br/>
+    start index <input id="minter_start_index"><br/>
+    minter owner <input id="minter_owner"><br/>
+    <button id="get_info">get info</button><br/>
+    wallet <span id="address"></span><br/>
+    collection owner <span id="collection_owner"></span><br/>
+    status <span id="status"></span><br/>
+    minter address <span id="minter_address"></span><br/>
+    minter deployed <span id="minter_deployed"></span><br/>
+    <button id="deploy_minter">deploy minter</button><br/><br/>
+    <button id="change_collection_owner">change collection owner</button><br/><br/>
+    current minter address <input id="current_minter_address"><br/><br/>
+    <button id="get_minter_data">get minter data</button><br/>
+    minter owner <span id="minter_owner_real"></span><br/>
+    minter next index <span id="minter_next_index"></span><br/>
+    minter cost <span id="minter_cost_real"></span><br/><br/>
+    nfts to mint <input id="nfts_to_mint" value="70"><br/>
+    mint nfts to <input id="mint_to"><br/>
+    <button id="mint_nfts">mint nfts</button><br/><br/>
+    TONs to take <input id="tons_to_take"><br/>
+    send to <input id="take_tons_to"><br/>
+    <button id="take_tons">take TONs</button><br/><br/>
+    new cost <input id="new_cost"><br/>
+    <button id="change_cost">change cost</button><br/><br/>
+    new minter <input id="new_minter"><br/>
+    <button id="migrate">migrate</button><br/><br/>
+    <script src="tonweb.js"></script>
+    <script>
+const { Contract, boc: { Cell }, Address } = TonWeb
+
+const readIntFromBitString = (bs, cursor, bits) => {
+    let n = BigInt(0);
+    for (let i = 0; i < bits; i++) {
+        n *= BigInt(2);
+        n += BigInt(bs.get(cursor + i));
+    }
+    return n;
+}
+
+const parseAddress = cell => {
+    let n = readIntFromBitString(cell.bits, 3, 8);
+    if (n > BigInt(127)) {
+        n = n - BigInt(256);
+    }
+    const hashPart = readIntFromBitString(cell.bits, 3 + 8, 256);
+    if (n.toString(10) + ":" + hashPart.toString(16) === '0:0') return null;
+    const s = n.toString(10) + ":" + hashPart.toString(16).padStart(64, '0');
+    return new Address(s);
+};
+
+class Minter extends Contract {
+    constructor(provider, options) {
+        options.wc = options.wc || 0;
+        options.code = options.code || Cell.oneFromBoc('B5EE9C7241020D010002A2000114FF00F4A413F4BCF2C80B0102016202030202CD04050021A01D43DA89A1F401F481F481A67FF4006102012006070201480B0C01F7401D0D3030171B0925F03E0FA4030ED44D0FA00FA40FA40D33FFA003026C7005364C705B3B18E5132355052A90420C101F2D06580645210BCF2D0655133A0812710BCF2D0665222F005F8276F105202BE8E22708018C8CB055004CF16821004C4B40013A8A182103B9ACA00A1FA02CB6AC973FB00925F03E2E03536808007B520C0009630803001CB07E0C8709322C2009DA4227AA90858CB07027AA90459E832C99321C2008E1301A521D021AA02D721D70B07A6305003CB0759E85B802FE04D31F21C0018E2A316C12FA0030821004C4B4005210B9F2D06750444313C85005FA025003CF1601CF16CB3F01FA02C9ED54E021C0028E1B6C21FA40304343C85005FA025003CF1601CF16CB3F01FA02C9ED54E021C0038E1D6C61FA00FA40D30730708018C8CB055003CF165003FA02CB6AC901FB00E021C004E30221C005090A0066365F0401D421D0D70B1F20C001F2D068C002F2D068FA00D3073071708018C8CB055006CF165003FA0214CB69CB00CCC901FB0000F08E34313302FA003082103B9ACA00AA008064821004C4B400A8A05210BBF2D0695E21C85005FA025003CF1601CF16CB3F01FA02C9ED54E03620C0068E175F05D30721C101F2D06580645220BCF2D065FA4030F005E0C0078E1C04D33F3050044313C85005FA025003CF1601CF16CB3F01FA02C9ED54E05F05000B32007C00F26000E53B51343E803E903E9034CFFE800C208401312D0032087E8089F3C58DDB5C24D4C26E638494D0283C010A7314D4681540A0103D10C0693A0C0DFE095C9C20063232C149F3C59452EA053E8084F2DA84B2C7F2CFC5B3325C7EC01401681100F214017E809400F3C58073C5B2CFC07E80B27B55206CF350D6')
+        super(provider, options)
+
+        this.methods.getMinterData = this.getMinterData.bind(this)
+    }
+
+    createDataCell() {
+        const cell = new Cell()
+        cell.bits.writeGrams(this.options.cost)
+        cell.bits.writeAddress(this.options.ownerAddress)
+        cell.bits.writeAddress(this.options.collectionAddress)
+        cell.bits.writeUint(this.options.nextIndex, 64)
+        cell.bits.writeGrams(this.options.sendThreshold)
+        return cell
+    }
+
+    createChangeCostBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(1, 32)
+        body.bits.writeGrams(params.newCost)
+        return body
+    }
+
+    createChangeOwnerBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(2, 32)
+        body.bits.writeAddress(params.newOwnerAddress)
+        return body
+    }
+
+    createSendCoinsBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(3, 32)
+        body.bits.writeGrams(params.amount)
+        body.bits.writeAddress(params.to)
+        body.bits.writeUint(params.mode, 8)
+        return body
+    }
+
+    createForwardMessageBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(4, 32)
+        body.bits.writeGrams(params.forwardAmount)
+        body.bits.writeUint(params.mode, 8)
+        body.refs[0] = params.message
+        return body
+    }
+
+    createChangeThresholdBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(5, 32)
+        body.bits.writeGrams(params.newSendThreshold)
+        return body
+    }
+
+    createFreeMintBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(6, 32)
+        body.bits.writeUint(params.count, 8)
+        body.bits.writeAddress(params.to)
+        return body
+    }
+
+    createChangeNextIndexBody(params) {
+        const body = new Cell()
+        body.bits.writeUint(7, 32)
+        body.bits.writeUint(params.newNextIndex, 64)
+        return body
+    }
+
+    async getMinterData() {
+        const myAddress = await this.getAddress();
+        const result = await this.provider.call2(myAddress.toString(), 'get_minter_data');
+
+        return {
+            cost: result[0],
+            ownerAddress: parseAddress(result[1]),
+            collectionAddress: parseAddress(result[2]),
+            nextIndex: result[3],
+            sendThreshold: result[4]
+        }
+    }
+}
+    </script>
+    <script>
+        let address = ''
+
+        const currentMinterAddressInput = document.getElementById('current_minter_address')
+
+        const getInfo = document.getElementById('get_info')
+        const collectionInput = document.getElementById('collection')
+        const costInput = document.getElementById('minter_cost')
+        const thresholdInput = document.getElementById('minter_threshold')
+        const startIndexInput = document.getElementById('minter_start_index')
+        const minterOwnerInput = document.getElementById('minter_owner')
+        const addressSpan = document.getElementById('address')
+        const collectionOwnerSpan = document.getElementById('collection_owner')
+        const statusSpan = document.getElementById('status')
+        const minterAddressSpan = document.getElementById('minter_address')
+        const minterDeployedSpan = document.getElementById('minter_deployed')
+        
+        const deployMinter = document.getElementById('deploy_minter')
+        const changeCollectionOwner = document.getElementById('change_collection_owner')
+        const mintNfts = document.getElementById('mint_nfts')
+        const nftsToMintInput = document.getElementById('nfts_to_mint')
+        const mintToInput = document.getElementById('mint_to')
+
+        const getMinterData = document.getElementById('get_minter_data')
+        const minterOwnerSpan = document.getElementById('minter_owner_real')
+        const minterNextIndexSpan = document.getElementById('minter_next_index')
+
+        const newMinterInput = document.getElementById('new_minter')
+        const migrate = document.getElementById('migrate')
+
+        const tonsToTakeInput = document.getElementById('tons_to_take')
+        const takeTonsToInput = document.getElementById('take_tons_to')
+        const takeTons = document.getElementById('take_tons')
+
+        const minterCostSpan = document.getElementById('minter_cost_real')
+
+        const newCostInput = document.getElementById('new_cost')
+        const changeCost = document.getElementById('change_cost')
+
+        const tonweb = new TonWeb(new TonWeb.HttpProvider('https://mainnet.tonhubapi.com/jsonRPC'))
+
+        let collection = null
+        const makeCollection = () => {
+            collection = new TonWeb.token.nft.NftCollection(tonweb.provider, {
+                address: collectionInput.value,
+            })
+        }
+
+        let minter = null
+        const makeMinter = () => {
+            minter = new Minter(tonweb.provider, {
+                cost: TonWeb.utils.toNano(costInput.value),
+                ownerAddress: new TonWeb.Address(minterOwnerInput.value),
+                collectionAddress: new TonWeb.Address(collectionInput.value),
+                nextIndex: parseInt(startIndexInput.value),
+                sendThreshold: TonWeb.utils.toNano(thresholdInput.value),
+            })
+        }
+
+        deployMinter.addEventListener('click', () => {
+            minter.getAddress().then(minterAddress => {
+                minter.createStateInit().then(stateInit => {
+                    stateInit.stateInit.toBoc().then(b => {
+                        window.ton.send('ton_sendTransaction', [{
+                            stateInit: TonWeb.utils.bytesToBase64(b),
+                            value: '50000000',
+                            to: minterAddress.toString(true, true, true)
+                        }])
+                    })
+                })
+            })
+        })
+
+        getMinterData.addEventListener('click', () => {
+            (new Minter(tonweb.provider, {
+                address: new TonWeb.Address(currentMinterAddressInput.value),
+            })).getMinterData().then(data => {
+                minterOwnerSpan.innerText = data.ownerAddress.toString(true, true, true)
+                minterNextIndexSpan.innerText = data.nextIndex.toString()
+                minterCostSpan.innerText = TonWeb.utils.fromNano(data.cost)
+            })
+        })
+
+        changeCollectionOwner.addEventListener('click', () => {
+            collection.getAddress().then(collectionAddress => {
+                minter.getAddress().then(minterAddress => {
+                    collection.createChangeOwnerBody({
+                        newOwnerAddress: minterAddress,
+                    }).toBoc().then(b => {
+                        window.ton.send('ton_sendTransaction', [{
+                            dataType: 'boc',
+                            data: TonWeb.utils.bytesToBase64(b),
+                            value: '50000000',
+                            to: collectionAddress.toString(true, true, true)
+                        }])
+                    })
+                })
+            })
+        })
+
+        mintNfts.addEventListener('click', () => {
+            const count = parseInt(nftsToMintInput.value)
+            (new Minter(tonweb.provider, {
+                address: new TonWeb.Address(currentMinterAddressInput.value),
+            })).createFreeMintBody({
+                count,
+                to: new TonWeb.Address(mintToInput.value),
+            }).toBoc().then(b => {
+                window.ton.send('ton_sendTransaction', [{
+                    dataType: 'boc',
+                    data: TonWeb.utils.bytesToBase64(b),
+                    value: 80000000 * (count + 1),
+                    to: currentMinterAddressInput.value,
+                }])
+            })
+        })
+
+        migrate.addEventListener('click', () => {
+            minter.createForwardMessageBody({
+                forwardAmount: 50000000,
+                mode: 1,
+                message: collection.createChangeOwnerBody({
+                    newOwnerAddress: new TonWeb.Address(newMinterInput.value),
+                }),
+            }).toBoc().then(b => {
+                window.ton.send('ton_sendTransaction', [{
+                    dataType: 'boc',
+                    data: TonWeb.utils.bytesToBase64(b),
+                    value: '100000000',
+                    to: currentMinterAddressInput.value,
+                }])
+            })
+        })
+
+        takeTons.addEventListener('click', () => {
+            (new Minter(tonweb.provider, {
+                address: new TonWeb.Address(currentMinterAddressInput.value),
+            })).createSendCoinsBody({
+                amount: TonWeb.utils.toNano(tonsToTakeInput.value),
+                to: new TonWeb.Address(takeTonsToInput.value),
+                mode: 1,
+            }).toBoc().then(b => {
+                window.ton.send('ton_sendTransaction', [{
+                    dataType: 'boc',
+                    data: TonWeb.utils.bytesToBase64(b),
+                    value: '50000000',
+                    to: currentMinterAddressInput.value,
+                }])
+            })
+        })
+
+        changeCost.addEventListener('click', () => {
+            (new Minter(tonweb.provider, {
+                address: new TonWeb.Address(currentMinterAddressInput.value),
+            })).createChangeCostBody({
+                newCost: TonWeb.utils.toNano(newCostInput.value)
+            }).toBoc().then(b => {
+                window.ton.send('ton_sendTransaction', [{
+                    dataType: 'boc',
+                    data: TonWeb.utils.bytesToBase64(b),
+                    value: '50000000',
+                    to: currentMinterAddressInput.value,
+                }])
+            })
+        })
+
+        getInfo.addEventListener('click', () => {
+            window.ton.send('ton_requestAccounts').then(accounts => {
+                address = accounts[0]
+                addressSpan.innerText = address
+                minterOwnerInput.value = address
+                mintToInput.value = address
+
+                makeCollection()
+                collection.getCollectionData().then(data => {
+                    collectionOwnerSpan.innerText = data.ownerAddress.toString(true, true, true)
+                    startIndexInput.value = data.nextItemIndex
+                    statusSpan.innerText = data.ownerAddress.toString(true, true, true) === address ? 'OK' : 'bad'
+
+                    makeMinter()
+                    minter.getAddress().then(minterAddress => {
+                        minterAddressSpan.innerText = minterAddress.toString(true, true, true)
+                        newMinterInput.value = minterAddress.toString(true, true, true)
+
+                        tonweb.provider.getAddressInfo(minterAddressSpan.innerText).then(info => {
+                            minterDeployedSpan.innerText = info.state !== 'uninitialized'
+                        })
+                    })
+                })
+            })
+        })
+    </script>
+</body>
+</html>
